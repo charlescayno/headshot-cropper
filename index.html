@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HeadShot Cropper</title>
 
-  <!-- TensorFlow.js 3.x (full bundle, compatible with BlazeFace 0.1.0) -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.1.0/dist/blazeface.min.js"></script>
+  <!-- face-api.js (self-contained, models load from jsDelivr — no tfhub.dev) -->
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 
   <!-- JSZip + FileSaver -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -329,17 +328,20 @@ const modelSpin   = document.getElementById('model-spin');
 let faceModel   = null;
 let items       = [];   // { id, file, outName, blob, status }
 
-// ── Load BlazeFace ──────────────────────────────────
+// Model files served from jsDelivr — no tfhub.dev dependency
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+
+// ── Load TinyFaceDetector ───────────────────────────
 async function loadModel() {
   try {
-    await tf.setBackend('webgl');
-    await tf.ready();
-    faceModel = await blazeface.load();
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    faceModel = true;
     modelBanner.classList.add('ready');
     modelSpin.style.display = 'none';
     modelMsg.textContent = 'AI model ready — drop your photos!';
     setTimeout(() => modelBanner.style.display = 'none', 2500);
   } catch (err) {
+    console.error(err);
     modelBanner.classList.add('error');
     modelSpin.style.display = 'none';
     modelMsg.textContent = 'Failed to load AI model. Please refresh the page.';
@@ -421,20 +423,16 @@ async function processImage(item) {
   const { id, file } = item;
   try {
     const img = await loadImg(file);
-    const predictions = await faceModel.estimateFaces(img, false);
+    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
+    const detections = await faceapi.detectAllFaces(img, opts);
 
     let cx, cy, cw, ch;
 
-    if (predictions.length > 0) {
-      // Pick face with highest confidence
-      const face = predictions.reduce((a, b) =>
-        (b.probability[0] > a.probability[0] ? b : a));
-
-      const [x1, y1] = face.topLeft;
-      const [x2, y2] = face.bottomRight;
-      const fw = x2 - x1;
-      const fh = y2 - y1;
-      const fcx = (x1 + x2) / 2;
+    if (detections.length > 0) {
+      // Pick the highest-score detection
+      const best = detections.reduce((a, b) => b.score > a.score ? b : a);
+      const { x: x1, y: y1, width: fw, height: fh } = best.box;
+      const fcx = x1 + fw / 2;
 
       // Generous padding so portrait matches the reference crop style
       cw = fw * 2.4;
