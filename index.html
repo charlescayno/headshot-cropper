@@ -419,10 +419,11 @@ async function processImage(item) {
 
           const { left: x1, top: y1, width: fw, height: fh } = face.boundingBox;
           const fcx = x1 + fw / 2;
-          cw = fw * 2.4;
-          ch = fh * 3.4;
+          // Tight face-only crop: small padding on sides, forehead above, chin just below
+          cw = fw * 1.45;
+          ch = fh * 1.5;
           cx = fcx - cw / 2;
-          cy = y1 - fh * 0.45;
+          cy = y1 - fh * 0.28;   // include hair/forehead above detected box
           method = 'face';
         }
       } catch (_) { /* FaceDetector exists but failed — fall through to heuristic */ }
@@ -430,11 +431,12 @@ async function processImage(item) {
 
     // ── Smart portrait heuristic (universal fallback, always works) ──
     if (method !== 'face') {
-      // Half-body photos: head is in top ~35-40% of the image.
-      // Crop top 55% at full width — reliably produces a headshot portrait.
-      cw = img.width;
-      ch = img.height * 0.55;
-      cx = 0;
+      // In a half-body photo the face sits in roughly the top-center of the frame.
+      // Face is typically ~30% of image height tall and centered horizontally.
+      // We take the top 38% of height and center 65% of width — tight face-only crop.
+      ch = img.height * 0.38;
+      cw = img.width  * 0.65;
+      cx = (img.width - cw) / 2;   // center horizontally
       cy = 0;
       method = 'heuristic';
     }
