@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HeadShot Cropper</title>
+
+  <!-- TensorFlow.js + BlazeFace -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.11.0/dist/tf-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0/dist/tf-backend-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.1.0/dist/blazeface.min.js"></script>
+
+  <!-- JSZip + FileSaver -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --green:       #00C896;
+      --green-dark:  #00a07a;
+      --green-light: #e6fdf6;
+      --bg:          #f0f4f8;
+      --card:        #ffffff;
+      --text:        #1a202c;
+      --muted:       #718096;
+      --border:      #e2e8f0;
+      --shadow:      0 4px 6px -1px rgba(0,0,0,.10), 0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg:   0 10px 15px -3px rgba(0,0,0,.10), 0 4px 6px -2px rgba(0,0,0,.05);
+      --radius:      12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    header {
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: .9rem 1.75rem;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-ring {
+      width: 38px; height: 38px;
+      border: 2.5px solid var(--green);
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-weight: 800; font-size: .82rem;
+      color: var(--green);
+      letter-spacing: -.5px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; }
+    header h1 span { color: var(--green); }
+    .header-pill {
+      margin-left: auto;
+      font-size: .75rem;
+      background: var(--green-light);
+      color: var(--green-dark);
+      padding: .25rem .75rem;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+
+    /* ── Main layout ─────────────────────────────── */
+    main { max-width: 1200px; margin: 0 auto; padding: 1.75rem 1.25rem 3rem; }
+
+    /* ── Loading banner ──────────────────────────── */
+    #model-banner {
+      display: flex; align-items: center; gap: .75rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      padding: .75rem 1.25rem;
+      border-radius: var(--radius);
+      margin-bottom: 1.5rem;
+      font-size: .875rem;
+      font-weight: 500;
+    }
+    #model-banner.ready {
+      background: linear-gradient(135deg, var(--green), var(--green-dark));
+    }
+    #model-banner.error { background: linear-gradient(135deg, #f87171, #dc2626); }
+
+    /* ── Spinner ─────────────────────────────────── */
+    .spin {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: rotate .75s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+
+    /* ── Drop zone ───────────────────────────────── */
+    #drop-zone {
+      background: var(--card);
+      border: 2px dashed var(--border);
+      border-radius: 18px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      margin-bottom: 1.5rem;
+    }
+    #drop-zone:hover, #drop-zone.over {
+      border-color: var(--green);
+      background: var(--green-light);
+    }
+    .upload-icon {
+      width: 68px; height: 68px;
+      background: linear-gradient(135deg, var(--green), var(--green-dark));
+      border-radius: 18px;
+      display: grid; place-items: center;
+      margin: 0 auto 1.1rem;
+      box-shadow: 0 4px 14px rgba(0,200,150,.35);
+    }
+    .upload-icon svg { width: 34px; height: 34px; fill: #fff; }
+    #drop-zone h2 { font-size: 1.15rem; margin-bottom: .4rem; }
+    #drop-zone p  { color: var(--muted); font-size: .875rem; }
+    .badge-formats {
+      display: inline-flex; gap: .4rem;
+      margin-top: .9rem;
+    }
+    .badge-formats span {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: .2rem .6rem;
+      font-size: .75rem; font-weight: 600; color: var(--muted);
+    }
+
+    /* ── Buttons ─────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: .45rem;
+      padding: .55rem 1.15rem;
+      border-radius: 8px;
+      font-size: .875rem; font-weight: 600;
+      cursor: pointer; border: none;
+      transition: background .15s, transform .15s, opacity .15s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+    .btn-primary   { background: var(--green); color: #fff; }
+    .btn-primary:hover:not(:disabled)   { background: var(--green-dark); }
+    .btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--bg); }
+    .btn-ghost     { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+
+    /* ── Actions bar ─────────────────────────────── */
+    #actions-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    #actions-bar h2 { font-size: 1rem; font-weight: 700; }
+    #actions-bar h2 span { color: var(--muted); font-weight: 400; font-size: .875rem; }
+    .bar-right { display: flex; gap: .6rem; }
+
+    /* ── Results grid ────────────────────────────── */
+    #results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 1.1rem;
+    }
+
+    /* ── Result card ─────────────────────────────── */
+    .r-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      transition: box-shadow .2s, transform .2s;
+    }
+    .r-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+
+    .card-imgs {
+      display: grid;
+      grid-template-columns: 1fr;
+      background: var(--border);
+      gap: 1px;
+      transition: grid-template-columns .3s;
+    }
+    .card-imgs.two-col { grid-template-columns: 1fr 1fr; }
+
+    .img-wrap {
+      position: relative;
+      overflow: hidden;
+      background: #edf2f7;
+      height: 200px;
+    }
+    .img-wrap img {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    .img-tag {
+      position: absolute; bottom: 7px; left: 7px;
+      background: rgba(0,0,0,.58);
+      color: #fff;
+      font-size: .68rem; font-weight: 700;
+      padding: 2px 8px; border-radius: 5px;
+      letter-spacing: .3px;
+      text-transform: uppercase;
+    }
+    .img-tag.cropped { background: rgba(0,160,122,.85); }
+
+    /* processing overlay */
+    .proc-overlay {
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,.78);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .5rem;
+    }
+    .proc-overlay .spin {
+      width: 30px; height: 30px; border-width: 3px;
+      border-color: rgba(0,200,150,.25);
+      border-top-color: var(--green);
+    }
+    .proc-overlay p { font-size: .78rem; color: var(--muted); font-weight: 500; }
+
+    /* card body */
+    .card-body { padding: .8rem 1rem; }
+    .card-filename {
+      font-size: .82rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: .55rem;
+      color: var(--text);
+    }
+    .card-footer { display: flex; align-items: center; justify-content: space-between; }
+
+    /* status badges */
+    .badge {
+      font-size: .72rem; font-weight: 700;
+      padding: .2rem .65rem; border-radius: 20px;
+      letter-spacing: .2px;
+    }
+    .badge-wait    { background: #fef3c7; color: #92400e; }
+    .badge-done    { background: #d1fae5; color: #065f46; }
+    .badge-fallback{ background: #dbeafe; color: #1e40af; }
+    .badge-error   { background: #fee2e2; color: #991b1b; }
+
+    .dl-btn { padding: .35rem .75rem; font-size: .78rem; }
+
+    /* ── Hidden file input ───────────────────────── */
+    #file-input { display: none; }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 520px) {
+      main { padding: 1rem .75rem 2rem; }
+      #results-grid { grid-template-columns: 1fr; }
+      #drop-zone { padding: 2rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────── -->
+<header>
+  <div class="logo-ring">ccf</div>
+  <h1>HeadShot <span>Cropper</span></h1>
+  <div class="header-pill">AI-powered &bull; Browser only</div>
+</header>
+
+<!-- ── Main ─────────────────────────────────────── -->
+<main>
+
+  <!-- Model status -->
+  <div id="model-banner">
+    <div class="spin" id="model-spin"></div>
+    <span id="model-msg">Loading AI face-detection model&hellip;</span>
+  </div>
+
+  <!-- Drop zone -->
+  <div id="drop-zone" onclick="fileInput.click()">
+    <div class="upload-icon">
+      <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+    </div>
+    <h2>Drop your half-body photos here</h2>
+    <p>or click anywhere to browse your files</p>
+    <div class="badge-formats">
+      <span>JPG</span><span>JPEG</span><span>PNG</span>
+    </div>
+  </div>
+  <input type="file" id="file-input" accept=".jpg,.jpeg,.png" multiple />
+
+  <!-- Actions bar -->
+  <div id="actions-bar">
+    <h2>Results &nbsp;<span id="count-label"></span></h2>
+    <div class="bar-right">
+      <button class="btn btn-ghost" onclick="clearAll()">Clear all</button>
+      <button class="btn btn-primary" id="dl-all-btn" onclick="downloadAll()" disabled>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        Download all
+      </button>
+    </div>
+  </div>
+
+  <!-- Grid -->
+  <div id="results-grid"></div>
+
+</main>
+
+<!-- ── Script ────────────────────────────────────── -->
+<script>
+'use strict';
+
+const fileInput   = document.getElementById('file-input');
+const dropZone    = document.getElementById('drop-zone');
+const grid        = document.getElementById('results-grid');
+const actionsBar  = document.getElementById('actions-bar');
+const countLabel  = document.getElementById('count-label');
+const dlAllBtn    = document.getElementById('dl-all-btn');
+const modelBanner = document.getElementById('model-banner');
+const modelMsg    = document.getElementById('model-msg');
+const modelSpin   = document.getElementById('model-spin');
+
+let faceModel   = null;
+let items       = [];   // { id, file, outName, blob, status }
+
+// ── Load BlazeFace ──────────────────────────────────
+async function loadModel() {
+  try {
+    await tf.setBackend('webgl');
+    await tf.ready();
+    faceModel = await blazeface.load();
+    modelBanner.classList.add('ready');
+    modelSpin.style.display = 'none';
+    modelMsg.textContent = 'AI model ready — drop your photos!';
+    setTimeout(() => modelBanner.style.display = 'none', 2500);
+  } catch (err) {
+    modelBanner.classList.add('error');
+    modelSpin.style.display = 'none';
+    modelMsg.textContent = 'Failed to load AI model. Please refresh the page.';
+  }
+}
+loadModel();
+
+// ── Drag & drop ─────────────────────────────────────
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  const files = [...e.dataTransfer.files].filter(isImage);
+  handleFiles(files);
+});
+fileInput.addEventListener('change', e => {
+  handleFiles([...e.target.files]);
+  e.target.value = '';
+});
+
+function isImage(f) { return /\.(jpe?g|png)$/i.test(f.name); }
+
+// ── Handle files ────────────────────────────────────
+function handleFiles(files) {
+  if (!files.length) return;
+  if (!faceModel) {
+    alert('The face-detection model is still loading. Please wait a moment and try again.');
+    return;
+  }
+  actionsBar.style.display = 'flex';
+
+  files.forEach(file => {
+    const id      = 'i' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const base    = file.name.replace(/\.(jpe?g|png)$/i, '');
+    const ext     = (file.name.match(/\.(jpe?g|png)$/i) || ['.jpg'])[0].toLowerCase();
+    const outName = base + '_cropped' + ext;
+    const item    = { id, file, outName, blob: null, status: 'processing' };
+    items.push(item);
+    createCard(item);
+    processImage(item);
+  });
+
+  updateCount();
+}
+
+// ── Create card ─────────────────────────────────────
+function createCard({ id, file, outName }) {
+  const origUrl = URL.createObjectURL(file);
+  const card = document.createElement('div');
+  card.className = 'r-card';
+  card.id = 'card-' + id;
+  card.innerHTML = `
+    <div class="card-imgs" id="imgs-${id}">
+      <div class="img-wrap">
+        <img src="${origUrl}" alt="Original" />
+        <span class="img-tag">Original</span>
+        <div class="proc-overlay" id="ov-${id}">
+          <div class="spin"></div>
+          <p>Detecting face&hellip;</p>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-filename" title="${outName}">${outName}</div>
+      <div class="card-footer">
+        <span class="badge badge-wait" id="badge-${id}">Processing&hellip;</span>
+        <button class="btn btn-secondary dl-btn" id="dlbtn-${id}"
+                onclick="downloadOne('${id}')" disabled>
+          Download
+        </button>
+      </div>
+    </div>`;
+  grid.insertBefore(card, grid.firstChild);
+}
+
+// ── Process image ────────────────────────────────────
+async function processImage(item) {
+  const { id, file } = item;
+  try {
+    const img = await loadImg(file);
+    const predictions = await faceModel.estimateFaces(img, false);
+
+    let cx, cy, cw, ch;
+
+    if (predictions.length > 0) {
+      // Pick face with highest confidence
+      const face = predictions.reduce((a, b) =>
+        (b.probability[0] > a.probability[0] ? b : a));
+
+      const [x1, y1] = face.topLeft;
+      const [x2, y2] = face.bottomRight;
+      const fw = x2 - x1;
+      const fh = y2 - y1;
+      const fcx = (x1 + x2) / 2;
+
+      // Generous padding so portrait matches the reference crop style
+      cw = fw * 2.4;
+      ch = fh * 3.4;
+      cx = fcx - cw / 2;
+      cy = y1 - fh * 0.45;   // some forehead space above
+
+      item.status = 'done';
+    } else {
+      // Fallback: top 55 % of image, centered
+      cw = img.width;
+      ch = img.height * 0.55;
+      cx = 0;
+      cy = 0;
+      item.status = 'fallback';
+    }
+
+    // Clamp to image boundaries
+    const bx  = Math.max(0, Math.round(cx));
+    const by  = Math.max(0, Math.round(cy));
+    const bx2 = Math.min(img.width,  Math.round(cx + cw));
+    const by2 = Math.min(img.height, Math.round(cy + ch));
+    const bw  = bx2 - bx;
+    const bh  = by2 - by;
+
+    // Draw crop to canvas
+    const canvas = document.createElement('canvas');
+    canvas.width  = bw;
+    canvas.height = bh;
+    canvas.getContext('2d').drawImage(img, bx, by, bw, bh, 0, 0, bw, bh);
+
+    // Convert to blob
+    const mime = file.type || 'image/jpeg';
+    canvas.toBlob(blob => {
+      item.blob = blob;
+      const cropUrl = URL.createObjectURL(blob);
+      updateCard(id, cropUrl, item.status);
+    }, mime, 0.95);
+
+  } catch (err) {
+    console.error(err);
+    item.status = 'error';
+    updateCard(id, null, 'error');
+  }
+}
+
+// ── Update card after processing ─────────────────────
+function updateCard(id, cropUrl, status) {
+  // Remove overlay
+  document.getElementById('ov-' + id)?.remove();
+
+  // Insert cropped preview
+  if (cropUrl) {
+    const imgsDiv = document.getElementById('imgs-' + id);
+    imgsDiv.classList.add('two-col');
+    const wrap = document.createElement('div');
+    wrap.className = 'img-wrap';
+    wrap.innerHTML = `
+      <img src="${cropUrl}" alt="Cropped" />
+      <span class="img-tag cropped">Cropped</span>`;
+    imgsDiv.appendChild(wrap);
+  }
+
+  // Badge
+  const badge = document.getElementById('badge-' + id);
+  if (badge) {
+    if (status === 'done') {
+      badge.textContent = 'Face detected ✓';
+      badge.className   = 'badge badge-done';
+    } else if (status === 'fallback') {
+      badge.textContent = 'Top crop (no face)';
+      badge.className   = 'badge badge-fallback';
+    } else {
+      badge.textContent = 'Error';
+      badge.className   = 'badge badge-error';
+    }
+  }
+
+  // Download button
+  const dlBtn = document.getElementById('dlbtn-' + id);
+  if (dlBtn && (status === 'done' || status === 'fallback')) dlBtn.disabled = false;
+
+  updateDownloadAll();
+}
+
+// ── Helpers ──────────────────────────────────────────
+function loadImg(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function downloadOne(id) {
+  const item = items.find(i => i.id === id);
+  if (item?.blob) saveAs(item.blob, item.outName);
+}
+
+async function downloadAll() {
+  const ready = items.filter(i => i.blob);
+  if (!ready.length) return;
+  dlAllBtn.disabled = true;
+  dlAllBtn.textContent = 'Zipping…';
+
+  const zip = new JSZip();
+  ready.forEach(i => zip.file(i.outName, i.blob));
+  const content = await zip.generateAsync({ type: 'blob' });
+  saveAs(content, 'cropped_photos.zip');
+
+  dlAllBtn.disabled = false;
+  updateDownloadAll();
+}
+
+function clearAll() {
+  items = [];
+  grid.innerHTML = '';
+  actionsBar.style.display = 'none';
+  dlAllBtn.disabled = true;
+  dlAllBtn.textContent = 'Download all';
+}
+
+function updateCount() {
+  countLabel.textContent = `(${items.length} photo${items.length !== 1 ? 's' : ''})`;
+}
+
+function updateDownloadAll() {
+  const n = items.filter(i => i.blob).length;
+  dlAllBtn.disabled = n === 0;
+  dlAllBtn.innerHTML = n > 0
+    ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> Download all (${n})`
+    : `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> Download all`;
+}
+</script>
+</body>
+</html>
