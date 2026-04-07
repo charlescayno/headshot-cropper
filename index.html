@@ -419,11 +419,11 @@ async function processImage(item) {
 
           const { left: x1, top: y1, width: fw, height: fh } = face.boundingBox;
           const fcx = x1 + fw / 2;
-          // Tight face-only crop: small padding on sides, forehead above, chin just below
-          cw = fw * 1.45;
-          ch = fh * 1.5;
+          // Profile-style crop: face + forehead + neck, minimal side padding
+          cw = fw * 1.25;          // narrow: just face + ~12% padding each side
+          ch = fh * 2.1;           // tall: hair above + face + neck below
           cx = fcx - cw / 2;
-          cy = y1 - fh * 0.28;   // include hair/forehead above detected box
+          cy = y1 - fh * 0.45;    // push start up to include hair/top of head
           method = 'face';
         }
       } catch (_) { /* FaceDetector exists but failed — fall through to heuristic */ }
@@ -434,9 +434,9 @@ async function processImage(item) {
       // In a half-body photo the face sits in roughly the top-center of the frame.
       // Face is typically ~30% of image height tall and centered horizontally.
       // We take the top 38% of height and center 65% of width — tight face-only crop.
-      ch = img.height * 0.38;
-      cw = img.width  * 0.65;
-      cx = (img.width - cw) / 2;   // center horizontally
+      ch = img.height * 0.42;          // top 42% — face + neck, less body
+      cw = img.width  * 0.52;          // center 52% — avoids background logos on sides
+      cx = (img.width - cw) / 2;       // horizontally centered
       cy = 0;
       method = 'heuristic';
     }
