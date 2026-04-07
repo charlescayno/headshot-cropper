@@ -421,9 +421,9 @@ async function processImage(item) {
           const fcx = x1 + fw / 2;
           // Profile-style crop: face + forehead + neck, minimal side padding
           cw = fw * 1.25;          // narrow: just face + ~12% padding each side
-          ch = fh * 2.0;           // face + neck, without excess headroom
+          ch = fh * 1.85;          // face + room below chin (neck/collar)
           cx = fcx - cw / 2;
-          cy = y1 - fh * 0.18;    // minimal headroom — just above hairline
+          cy = y1 - fh * 0.22;    // hair is ~15% above y1, so ~7% gap above hair
           method = 'face';
         }
       } catch (_) { /* FaceDetector exists but failed — fall through to heuristic */ }
